@@ -1,0 +1,85 @@
+# Maven
+# Build your Java project and run tests with Apache Maven.
+# Add steps that analyze code, save build artifacts, deploy, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/java
+trigger: none
+
+resources: # types: pipelines | builds | repositories | containers | packages
+  repositories:
+    - repository: InfraARMTemplates # identifier (A-Z, a-z, 0-9, and underscore)
+      type: git # see the following "Type" topic
+      name: ARMTemplates # repository name (format depends on `type`)
+      ref: main # ref name to use; defaults to 'refs/heads/main'
+      trigger: # CI trigger for this repository, no CI trigger if skipped (only works for Azure Repos)
+        branches:
+          include: [main] # branch names which trigger a build
+    - repository: PipelinesRepo # identifier (A-Z, a-z, 0-9, and underscore)
+      type: git # see the following "Type" topic
+      name: PipelinesRepo # repository name (format depends on `type`)
+      ref: main # ref name to use; defaults to 'refs/heads/main'
+
+pool:
+  vmImage: windows-latest
+
+variables:
+  - name: resourceGroupName
+    value: "JG-Dev"
+  - name: location
+    value: "East US"
+  - name: environment
+    value: "Dev"
+
+stages:
+  - stage: "deploy_infrastucture"
+    dependsOn: []
+    jobs:
+      - job: "azure_arm_deploy"
+        steps:
+          - checkout: InfraARMTemplates
+            clean: true
+            path: arm_templates
+          - checkout: PipelinesRepo
+            clean: true
+            path: pipelines
+          - task: AzureResourceGroupDeployment@2
+            displayName: "AzureResourceGroupDeployment deploy keyvault"
+            name: 'KEYVAULT'
+            inputs:
+              azureSubscription: Training_Connection-JorgeGarzonTraining
+              action: "Create Or Update Resource Group" # Options: create Or Update Resource Group, select Resource Group, start, stop, stopWithDeallocate, restart, delete, deleteRG
+              resourceGroupName: ${{ variables.resourceGroupName }}
+              location: ${{ variables.location }}
+              templateLocation: "Linked artifact"
+              csmFileLink: "https://dev.azure.com/ArroyoTraining/JorgeGarzonTraining/_git/ARMTemplates?path=/arm_template.json"
+              csmFile: "$(Agent.BuildDirectory)/arm_templates/key_vault.json"
+              overrideParameters: "-environment ${{ variables.environment }} -objectId ce3d40b1-e188-453d-9801-9e015422a18d"
+              deploymentMode: "Incremental" # Options: Incremental, Complete, Validate
+              deploymentOutputs: keyvault_outputs
+          - powershell: |
+              $vaultConnectionString = $(keyvault_outputs.vaultConnectionString.value)
+              Write-Host "##vso[task.setvariable variable=vault_connection_string; isOutput=true]$vaultConnectionString"
+          - powershell: |
+              echo "vaultConnectionString: "
+              echo "$(vault_connection_string)"
+          - task: AzureCLI@2
+            enabled: true
+            displayName: "Set Key Vault secrets"
+            inputs:
+              azureSubscription: Training_Connection-JorgeGarzonTraining
+              scriptType: 'ps'
+              scriptLocation: 'scriptPath'
+              arguments: 'JG-KeyVault-Dev'
+              scriptPath: '$(Agent.BuildDirectory)/pipelines/infra_scripts/secrets.ps1'
+          - task: AzureResourceGroupDeployment@2
+            enabled: true
+            displayName: "AzureResourceGroupDeployment deploy rest of resources"
+            inputs:
+              azureSubscription: Training_Connection-JorgeGarzonTraining
+              action: "Create Or Update Resource Group" # Options: create Or Update Resource Group, select Resource Group, start, stop, stopWithDeallocate, restart, delete, deleteRG
+              resourceGroupName: ${{ variables.resourceGroupName }}
+              location: ${{ variables.location }}
+              templateLocation: "Linked artifact"
+              csmFileLink: "https://dev.azure.com/ArroyoTraining/JorgeGarzonTraining/_git/ARMTemplates?path=/arm_template.json"
+              csmFile: "$(Agent.BuildDirectory)/arm_templates/arm_template.json"
+              overrideParameters: "-environment ${{ variables.environment }} -dbAdminPassword $(secretName) -administratorLogin adminJg -storageAccountKey test3$#%fsdfsd32111 -vaultConnectionString $(vault_connection_string)"
+              deploymentMode: "Incremental" # Options: Incremental, Complete, Validate

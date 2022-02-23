@@ -1,0 +1,327 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "adminUsername": {
+      "type": "string",
+      "metadata": {
+        "description": "Username for the Virtual Machine."
+      }
+    },
+    "adminPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Password for the Virtual Machine."
+      }
+    },
+    "dnsLabelPrefix": {
+      "type": "string",
+      "defaultValue": "[concat('vm-', uniqueString(resourceGroup().id))]",
+      "metadata": {
+        "description": "Unique DNS Name for the Public IP used to access the Virtual Machine."
+      }
+    },
+    "windowsOSVersion": {
+      "type": "string",
+      "defaultValue": "2019-Datacenter",
+      "allowedValues": [
+        "2008-R2-SP1",
+        "2008-R2-SP1-smalldisk",
+        "2008-R2-SP1-zhcn",
+        "2012-Datacenter",
+        "2012-datacenter-gensecond",
+        "2012-Datacenter-smalldisk",
+        "2012-Datacenter-zhcn",
+        "2012-R2-Datacenter",
+        "2012-r2-datacenter-gensecond",
+        "2012-R2-Datacenter-smalldisk",
+        "2012-R2-Datacenter-zhcn",
+        "2016-Datacenter",
+        "2016-datacenter-gensecond",
+        "2016-Datacenter-Server-Core",
+        "2016-Datacenter-Server-Core-smalldisk",
+        "2016-Datacenter-smalldisk",
+        "2016-Datacenter-with-Containers",
+        "2016-Datacenter-with-RDSH",
+        "2016-Datacenter-zhcn",
+        "2019-Datacenter",
+        "2019-Datacenter-Core",
+        "2019-Datacenter-Core-smalldisk",
+        "2019-Datacenter-Core-with-Containers",
+        "2019-Datacenter-Core-with-Containers-smalldisk",
+        "2019-datacenter-gensecond",
+        "2019-Datacenter-smalldisk",
+        "2019-Datacenter-with-Containers",
+        "2019-Datacenter-with-Containers-smalldisk",
+        "2019-Datacenter-zhcn"
+      ],
+      "metadata": {
+        "description": "The Windows version for the VM. This will pick a fully patched image of this given Windows version. Allowed values: 2008-R2-SP1, 2012-Datacenter, 2012-R2-Datacenter."
+      }
+    },
+    "vmSize": {
+      "type": "string",
+      "defaultValue": "Standard_D2s_v3",
+      "metadata": {
+        "description": "VM Size, note the VM Size determnines the max number of disks available, use 'az vm list-sizes' or 'Get-AzVmSize' for details."
+      }
+    },
+    "sizeOfDataDisksInGB": {
+      "type": "int",
+      "defaultValue": 100,
+      "minValue": 16,
+      "maxValue": 4096,
+      "metadata": {
+        "description": "Size of the data disks"
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Location for all resources."
+      }
+    },
+    "diskStorageAccountType": {
+      "type": "string",
+      "defaultValue": "StandardSSD_LRS",
+      "metadata": {
+        "description": "'Premium_LRS' 'Premium_ZRS' 'StandardSSD_LRS' 'StandardSSD_ZRS' 'Standard_LRS' 'UltraSSD_LRS'"
+      }
+    },
+    "extensionScriptUri": {
+      "type": "string",
+      "metadata": {
+        "description": "description"
+      }
+    }
+  },
+  "variables": {
+    "nicName": "JG-VMNic",
+    "addressPrefix": "10.0.0.0/16",
+    "subnetName": "JG-Subnet",
+    "subnetPrefix": "10.0.0.0/24",
+    "publicIPAddressName": "JG-PublicIP",
+    "vmName": "JG-VM",
+    "virtualNetworkName": "JG-VNET",
+    "subnetRef": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('virtualNetworkName'), variables('subnetName'))]",
+    "nsgName": "JG-Net-Security-Group"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2019-06-01",
+      "name": "[concat(variables('publicIPAddressName'))]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "publicIPAllocationMethod": "Dynamic",
+        "dnsSettings": {
+          "domainNameLabel": "[concat(parameters('dnsLabelPrefix'))]"
+        }
+      }
+    },
+    {
+      "apiVersion": "2019-06-01",
+      "type": "Microsoft.Network/virtualNetworks",
+      "name": "[variables('virtualNetworkName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[variables('addressPrefix')]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[variables('subnetName')]",
+            "properties": {
+              "addressPrefix": "[variables('subnetPrefix')]"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "2021-05-01",
+      "type": "Microsoft.Network/networkInterfaces",
+      "name": "[concat(variables('nicName'))]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIPAddressName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('virtualNetworkName'))]",
+        "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]"
+      ],
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Dynamic",
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', concat(variables('publicIPAddressName')))]"
+              },
+              "subnet": {
+                "id": "[variables('subnetRef')]"
+              }
+            }
+          }
+        ],
+        "networkSecurityGroup": {
+          "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]",
+          "location": "[parameters('location')]",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Compute/disks",
+      "apiVersion": "2021-08-01",
+      "name": "[concat(variables('vmName'), '-datadisk-', 1)]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "[parameters('diskStorageAccountType')]"
+      },
+      "properties": {
+        "creationData": {
+          "createOption": "Empty"
+        },
+        "diskSizeGB": "[parameters('sizeOfDataDisksInGB')]"
+      }
+    },
+    {
+      "apiVersion": "2019-03-01",
+      "type": "Microsoft.Compute/virtualMachines",
+      "name": "[concat(variables('vmName'))]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkInterfaces', variables('nicName'))]",
+        "[resourceId('Microsoft.Compute/disks', concat(variables('vmName'), '-datadisk-', 1))]"
+      ],
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[parameters('vmSize')]"
+        },
+        "osProfile": {
+          "computerName": "[concat(variables('vmName'))]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "adminPassword": "[parameters('adminPassword')]"
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "MicrosoftWindowsServer",
+            "offer": "WindowsServer",
+            "sku": "[parameters('windowsOSVersion')]",
+            "version": "latest"
+          },
+          "osDisk": {
+            "name": "[concat(variables('vmName'), 0 ,'_OSDisk')]",
+            "caching": "ReadWrite",
+            "createOption": "FromImage",
+            "managedDisk": {
+              "storageAccountType": "[parameters('diskStorageAccountType')]"
+            }
+          },
+          "dataDisks": [
+            {
+              "caching": "ReadWrite",
+              "diskSizeGB": "[parameters('sizeOfDataDisksInGB')]",
+              "lun": 0,
+              "name": "[concat(variables('vmName'), '-datadisk-', 0)]",
+              "createOption": "Empty",
+              "managedDisk": {
+                "storageAccountType": "[parameters('diskStorageAccountType')]"
+              }
+            }
+          ]
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', concat(variables('nicName')))]"
+            }
+          ]
+        }
+      },
+      "resources": [
+        {
+          "type": "Microsoft.Compute/virtualMachines/extensions",
+          "apiVersion": "2021-04-01",
+          "name": "[concat(variables('vmName'),'/', 'InstallChocolatey')]",
+          "location": "[parameters('location')]",
+          "dependsOn": [
+            "[concat('Microsoft.Compute/virtualMachines/',variables('vmName'))]"
+          ],
+          "properties": {
+            "publisher": "Microsoft.Compute",
+            "type": "CustomScriptExtension",
+            "typeHandlerVersion": "1.7",
+            "autoUpgradeMinorVersion": true,
+            "settings": {
+              "fileUris": [
+                "[parameters('extensionScriptUri')]"
+              ],
+              "commandToExecute": "powershell.exe -ExecutionPolicy Unrestricted -File installChocolatey.ps1"
+            }
+          }
+        },
+        {
+          "type": "Microsoft.Compute/virtualMachines/extensions",
+          "name": "[concat(variables('vmName'), '/AADLoginForWindows')]",
+          "location": "[parameters('location')]",
+          "apiVersion": "2021-04-01",
+          "dependsOn": [
+            "[resourceId('Microsoft.Compute/virtualMachines/', variables('vmName'))]"
+          ],
+          "properties": {
+            "publisher": "Microsoft.Azure.ActiveDirectory",
+            "type": "AADLoginForWindows",
+            "typeHandlerVersion": "0.4",
+            "autoUpgradeMinorVersion": true
+          }
+        }
+      ]
+    },
+    {
+      "comments": "Network Security Group",
+      "name": "[variables('nsgName')]",
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2020-05-01",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "AllowRdpAll",
+            "properties": {
+              "description": "Allow traffic for RDP",
+              "sourceAddressPrefix": "*",
+              "sourcePortRange": "*",
+              "direction": "Inbound",
+              "access": "Allow",
+              "priority": 100,
+              "protocol": "Tcp",
+              "destinationPortRange": "3389",
+              "destinationAddressPrefix": "*"
+            }
+          },
+          {
+            "name": "AllowSshAll",
+            "properties": {
+              "description": "Allow SSH traffic to web servers",
+              "sourceAddressPrefix": "*",
+              "sourcePortRange": "*",
+              "direction": "Inbound",
+              "access": "Allow",
+              "priority": 200,
+              "protocol": "Tcp",
+              "destinationPortRange": "2222",
+              "destinationAddressPrefix": "*"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

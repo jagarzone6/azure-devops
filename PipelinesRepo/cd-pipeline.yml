@@ -1,0 +1,77 @@
+# Maven
+# Build your Java project and run tests with Apache Maven.
+# Add steps that analyze code, save build artifacts, deploy, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/java
+
+trigger: none
+
+resources:        # types: pipelines | builds | repositories | containers | packages
+  repositories:
+    - repository: DotNetApiApp  # identifier (A-Z, a-z, 0-9, and underscore)
+      type: git  # see the following "Type" topic
+      name: DotNetApiApp  # repository name (format depends on `type`)
+      ref: main  # ref name to use; defaults to 'refs/heads/main'
+      trigger:  # CI trigger for this repository, no CI trigger if skipped (only works for Azure Repos)
+        branches:
+          include: [ main ]
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+- name: netVersion
+  value: '6.0.x'
+- name: resourceGroupName
+  value: 'JG-Dev'
+
+stages:
+  - stage: 'build_and_deploy_dotnet_api_app'
+    dependsOn: []
+    jobs:
+    - deployment: dotNetAppDeployment
+      displayName: Deployment Job for Dotnet API  # friendly name to display in the UI
+      continueOnError: false                # 'true' if future jobs should run even if this job fails; defaults to 'false'
+      pool:
+          vmImage: 'ubuntu-latest'      
+      timeoutInMinutes: 20        # how long to run the job before automatically cancelling
+      cancelTimeoutInMinutes: 60  # how much time to give 'run always even if cancelled tasks' before killing them
+      environment: Dev  # target environment name and optionally a resource name to record the deployment history; format: <environment-name>.<resource-name>
+      strategy:
+        runOnce:    #rolling, canary are the other strategies that are supported
+          deploy:
+            steps:
+              - checkout: DotNetApiApp  # identifier for your repository resource
+                clean: true  # if true, execute `execute git clean -ffdx && git reset --hard HEAD` before fetching
+                path: app  # path to check out source code, relative to the agent's build directory (e.g. \_work\1); defaults to a directory called `s`
+              - task: UseDotNet@2
+                inputs:
+                  version: ${{variables.netVersion}}
+                  includePreviewVersions: true # Required for preview versions
+              - task: DotNetCoreCLI@2
+                displayName: 'dotnet pack'
+                inputs:
+                  command: 'pack'
+                  projects: 'web-api/web-api.csproj' # update with your test project directory
+              - task: DotNetCoreCLI@2
+                displayName: 'dotnet publish'
+                inputs:
+                  command: 'publish'
+                  zipAfterPublish: true
+                  projects: 'web-api/web-api.csproj' # update with your test project directory
+              - task: PowerShell@2
+                inputs:
+                  targetType: inline
+                  script: Get-ChildItem -Path .\web-api\bin\ -Recurse
+              - task: PublishPipelineArtifact@1
+                inputs:
+                  targetPath: 'web-api/bin/Debug/net6.0/publish.zip' # Required 
+                  artifactName: 'DotNetApiApp' # Optional
+                  artifactType: 'pipeline' # Required. Options: pipeline, filepath. Default value: pipeline
+              - task: AzureRmWebAppDeployment@4
+                inputs:
+                  appType: apiApp
+                  ConnectionType: AzureRM            
+                  ConnectedServiceName: 'Training_Connection-JorgeGarzonTraining'
+                  ResourceGroupName: ${{ variables.resourceGroupName }}
+                  WebAppName: 'JG-NetApi-Dev'
+                  Package: 'web-api/bin/Debug/net6.0/publish.zip'

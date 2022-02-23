@@ -1,0 +1,66 @@
+# Maven
+# Build your Java project and run tests with Apache Maven.
+# Add steps that analyze code, save build artifacts, deploy, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/java
+
+trigger: none
+
+resources: # types: pipelines | builds | repositories | containers | packages
+  repositories:
+    - repository: AngularApp # identifier (A-Z, a-z, 0-9, and underscore)
+      type: git # see the following "Type" topic
+      name: AngularApp # repository name (format depends on `type`)
+      ref: main # ref name to use; defaults to 'refs/heads/main'
+      trigger: # CI trigger for this repository, no CI trigger if skipped (only works for Azure Repos)
+        branches:
+          exclude: [main]
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - name: nodeVersion
+    value: "16.13.x"
+
+stages:
+  - stage: "build_and_test_angular_app"
+    dependsOn: []
+    jobs:
+      - job: "build_and_test"
+        steps:
+          - checkout: AngularApp # identifier for your repository resource
+            clean: true # if true, execute `execute git clean -ffdx && git reset --hard HEAD` before fetching
+            path: app # path to check out source code, relative to the agent's build directory (e.g. \_work\1); defaults to a directory called `s`
+          - task: NodeTool@0
+            inputs:
+              versionSpec: ${{variables.nodeVersion}}
+          - task: Npm@1
+            displayName: "npm install"
+            inputs:
+              command: custom
+              customCommand: "install --legacy-peer-deps"
+          - task: Npm@1
+            displayName: "npm run build"
+            inputs:
+              command: custom
+              customCommand: "run build"
+          - task: CmdLine@2
+            displayName: "install chrome"
+            inputs:
+              script: |
+                sudo apt update
+                sudo apt install -y wget unzip software-properties-common
+                sudo wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add -
+                sudo add-apt-repository "deb http://dl.google.com/linux/chrome/deb/ stable main"
+                sudo apt-get update
+                sudo apt-get install -y google-chrome-stable
+          - task: Npm@1
+            displayName: "npm run e2e"
+            inputs:
+              command: custom
+              customCommand: "run e2e"
+          - task: PublishTestResults@2
+            displayName: "Publish E2E Test Results"
+            inputs:
+              testResultsFiles: "junitresults.xml"
+              testRunTitle: "Test results for E2E protractor tests"
