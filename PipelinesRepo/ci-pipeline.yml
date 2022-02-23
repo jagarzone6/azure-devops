@@ -1,0 +1,73 @@
+# Maven
+# Build your Java project and run tests with Apache Maven.
+# Add steps that analyze code, save build artifacts, deploy, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/java
+
+trigger: none
+
+resources: # types: pipelines | builds | repositories | containers | packages
+  repositories:
+    - repository: DotNetApiApp # identifier (A-Z, a-z, 0-9, and underscore)
+      type: git # see the following "Type" topic
+      name: DotNetApiApp # repository name (format depends on `type`)
+      ref: main # ref name to use; defaults to 'refs/heads/main'
+      trigger: # CI trigger for this repository, no CI trigger if skipped (only works for Azure Repos)
+        branches:
+          exclude: [main]
+
+pool:
+  vmImage: ubuntu-latest
+
+parameters:
+  - name: runDotnetPack
+    displayName: Should run dotnet pack command ?
+    type: boolean
+    default: true
+  - name: runUnitTests
+    displayName: Should run unit tests ?
+    type: boolean
+    default: true
+  - name: dotNetVersion
+    displayName: Dot Net Version
+    type: string
+    default: 6.0.x
+    values:
+      - 6.0.x
+      - 5.0.x
+
+stages:
+  - stage: "build_and_test_pack_dotnet_app"
+    dependsOn: []
+    jobs:
+      - job: "restore_build_test_pack"
+        steps:
+          - checkout: DotNetApiApp # identifier for your repository resource
+            clean: true # if true, execute `execute git clean -ffdx && git reset --hard HEAD` before fetching
+            path: app # path to check out source code, relative to the agent's build directory (e.g. \_work\1); defaults to a directory called `s`
+          - task: UseDotNet@2
+            inputs:
+              version: ${{parameters.dotNetVersion}}
+              includePreviewVersions: true # Required for preview versions
+          - task: DotNetCoreCLI@2
+            displayName: "dotnet restore"
+            inputs:
+              command: "restore"
+              projects: "web-api/web-api.csproj" # update with your test project directory
+          - task: DotNetCoreCLI@2
+            displayName: "dotnet build"
+            inputs:
+              command: "build"
+              projects: "web-api/web-api.csproj" # update with your test project directory
+          - task: DotNetCoreCLI@2
+            displayName: "dotnet test"
+            condition: ${{ parameters.runUnitTests }}
+            inputs:
+              command: "test"
+              publishTestResults: true
+              projects: "web-api-tests/web-api-tests.csproj" # update with your test project directory
+          - task: DotNetCoreCLI@2
+            displayName: "dotnet pack"
+            condition: ${{ parameters.runDotnetPack }}
+            inputs:
+              command: "pack"
+              projects: "web-api/web-api.csproj" # update with your test project directory

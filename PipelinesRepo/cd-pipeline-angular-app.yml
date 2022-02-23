@@ -1,0 +1,72 @@
+# Maven
+# Build your Java project and run tests with Apache Maven.
+# Add steps that analyze code, save build artifacts, deploy, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/java
+
+trigger: none
+
+resources:        # types: pipelines | builds | repositories | containers | packages
+  repositories:
+    - repository: AngularApp  # identifier (A-Z, a-z, 0-9, and underscore)
+      type: git  # see the following "Type" topic
+      name: AngularApp  # repository name (format depends on `type`)
+      ref: main  # ref name to use; defaults to 'refs/heads/main'
+      trigger:  # CI trigger for this repository, no CI trigger if skipped (only works for Azure Repos)
+        branches:
+          include: [ main ]
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - name: nodeVersion
+    value: "16.13.x"
+  - name: resourceGroupName
+    value: 'JG-Dev'
+
+stages:
+  - stage: 'build_and_deploy_angular_app'
+    dependsOn: []
+    jobs:
+    - job: 'build_and_deploy'
+      steps:
+        - checkout: AngularApp  # identifier for your repository resource
+          clean: true  # if true, execute `execute git clean -ffdx && git reset --hard HEAD` before fetching
+          path: app  # path to check out source code, relative to the agent's build directory (e.g. \_work\1); defaults to a directory called `s`
+        - task: NodeTool@0
+          inputs:
+            versionSpec: ${{variables.nodeVersion}}
+        - task: Npm@1
+          displayName: "npm install"
+          inputs:
+            command: custom
+            customCommand: "install --legacy-peer-deps"
+        - task: Npm@1
+          displayName: "npm run build"
+          inputs:
+            command: custom
+            customCommand: "run build"
+        - task: ArchiveFiles@2
+          displayName: "generate ZIP file"
+          inputs:
+            rootFolderOrFile: './dist' 
+            includeRootFolder: false 
+            archiveType: 'zip' # Options: zip, 7z, tar, wim
+            #tarCompression: 'gz' # Optional. Options: gz, bz2, xz, none
+            archiveFile: './dist.zip' 
+            replaceExistingArchive: true 
+            #verbose: # Optional
+            #quiet: # Optional
+        - task: PublishPipelineArtifact@1
+          inputs:
+            targetPath: 'dist.zip' # Required 
+            artifactName: 'AngularApp' # Optional
+            artifactType: 'pipeline' # Required. Options: pipeline, filepath. Default value: pipeline
+        - task: AzureRmWebAppDeployment@4
+          inputs:
+            appType: app
+            ConnectionType: AzureRM            
+            ConnectedServiceName: 'Training_Connection-JorgeGarzonTraining'
+            ResourceGroupName: ${{ variables.resourceGroupName }}
+            WebAppName: 'JG-AngularApp-Dev'
+            Package: 'dist.zip'

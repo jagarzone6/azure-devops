@@ -1,0 +1,97 @@
+# Maven
+# Build your Java project and run tests with Apache Maven.
+# Add steps that analyze code, save build artifacts, deploy, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/java
+trigger: none
+
+resources: # types: pipelines | builds | repositories | containers | packages
+  repositories:
+    - repository: VMsARMTemplates # identifier (A-Z, a-z, 0-9, and underscore)
+      type: git # see the following "Type" topic
+      name: VMsARMTemplates # repository name (format depends on `type`)
+      ref: main # ref name to use; defaults to 'refs/heads/main'
+      trigger: # CI trigger for this repository, no CI trigger if skipped (only works for Azure Repos)
+        branches:
+          include: [main] # branch names which trigger a build
+    - repository: PipelinesRepo # identifier (A-Z, a-z, 0-9, and underscore)
+      type: git # see the following "Type" topic
+      name: PipelinesRepo # repository name (format depends on `type`)
+      ref: main # ref name to use; defaults to 'refs/heads/main'
+
+pool: JG-Agent
+
+variables:
+  - template: variables.yml
+
+stages:
+  - stage: "deploy_infrastucture"
+    dependsOn: []
+    jobs:
+      - job: "azure_arm_deploy"
+        steps:
+          - checkout: VMsARMTemplates
+            clean: true
+            path: vms_template
+          - checkout: PipelinesRepo
+            clean: true
+            path: pipelines
+          - task: AzureResourceGroupDeployment@2
+            displayName: "AzureResourceGroupDeployment deploy Storage"
+            inputs:
+              azureSubscription: Training_Connection-JorgeGarzonTraining
+              action: "Create Or Update Resource Group" # Options: create Or Update Resource Group, select Resource Group, start, stop, stopWithDeallocate, restart, delete, deleteRG
+              resourceGroupName: ${{ variables.resourceGroupName }}
+              location: ${{ variables.location }}
+              templateLocation: "Linked artifact"
+              csmFileLink: "https://dev.azure.com/ArroyoTraining/JorgeGarzonTraining/_git/VMsARMTemplates?path=/vm_storage.json"
+              csmFile: "$(Agent.BuildDirectory)/vms_template/vm_storage.json"
+              overrideParameters: ""
+              deploymentMode: "Incremental" # Options: Incremental, Complete, Validate
+              deploymentOutputs: storage_outputs
+          - powershell: |
+              $key_value = $(storage_outputs.storageAccessKey.value)
+              $account_name_value = $(storage_outputs.storageAccountName.value)
+              $container_name_value = $(storage_outputs.storageContainerName.value)
+              Write-Host "##vso[task.setvariable variable=storageAccessKey; isOutput=true]$key_value"
+              Write-Host "##vso[task.setvariable variable=storageAccountName; isOutput=true]$account_name_value"
+              Write-Host "##vso[task.setvariable variable=storageContainerName; isOutput=true]$container_name_value"
+          - powershell: |
+              Write-Host "storageAccountName: "
+              Write-Host "$(storageAccountName)"
+              Write-Host "storageContainerName: "
+              Write-Host "$(storageContainerName)"
+          - task: AzureCLI@2
+            enabled: true
+            displayName: "Upload storage blob files"
+            inputs:
+              azureSubscription: Training_Connection-JorgeGarzonTraining
+              scriptType: 'ps'
+              scriptLocation: 'scriptPath'
+              arguments: '$(storageAccessKey) $(storageAccountName) $(storageContainerName)'
+              scriptPath: '$(Agent.BuildDirectory)/pipelines/vms_scripts/storage.ps1'
+          - powershell: |
+              Write-Host "script_url: "
+              Write-Host "$(script_url)"
+              Write-Host "jdk_url: "
+              Write-Host "$(jdk_url)"
+          - task: AzureResourceGroupDeployment@2
+            displayName: "AzureResourceGroupDeployment deploy VMs"
+            inputs:
+              azureSubscription: Training_Connection-JorgeGarzonTraining
+              action: "Create Or Update Resource Group" # Options: create Or Update Resource Group, select Resource Group, start, stop, stopWithDeallocate, restart, delete, deleteRG
+              resourceGroupName: ${{ variables.resourceGroupName }}
+              location: ${{ variables.location }}
+              templateLocation: "Linked artifact"
+              csmFileLink: "https://dev.azure.com/ArroyoTraining/JorgeGarzonTraining/_git/VMsARMTemplates?path=/vm.json"
+              csmFile: "$(Agent.BuildDirectory)/vms_template/vm.json"
+              overrideParameters: "-adminUsername JG-VM-Admin -adminPassword 'GkdR7PXN*111' -sizeOfDataDisksInGB 32 -extensionScriptUri $(script_url)"
+              deploymentMode: "Incremental" # Options: Incremental, Complete, Validate
+          - task: AzureCLI@2
+            enabled: true
+            displayName: "Install tools in VM"
+            inputs:
+              azureSubscription: Training_Connection-JorgeGarzonTraining
+              scriptType: 'ps'
+              scriptLocation: 'scriptPath'
+              arguments: 'JG-VMs JG-VM "$(jdk_url)"'
+              scriptPath: '$(Agent.BuildDirectory)/pipelines/vms_scripts/vms.ps1'
